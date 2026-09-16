@@ -1,0 +1,46 @@
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: escolhaom
+      POSTGRES_USER: escolhaom
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U escolhaom -d escolhaom"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    networks: [appnet]
+
+  api:
+    build: ./api
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://escolhaom:${POSTGRES_PASSWORD}@db:5432/escolhaom
+      ADMIN_PIN: ${ADMIN_PIN}
+      EVENT_TITLE: ${EVENT_TITLE:-Escolha de Organização Militar}
+      EVENT_COURSE: ${EVENT_COURSE:-Curso de Cavalaria}
+    depends_on:
+      db:
+        condition: service_healthy
+    networks: [appnet]
+
+  web:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    ports:
+      - "${HTTP_PORT:-80}:80"
+    volumes:
+      - ./web:/usr/share/nginx/html:ro
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on: [api]
+    networks: [appnet]
+
+volumes:
+  postgres_data:
+
+networks:
+  appnet:
