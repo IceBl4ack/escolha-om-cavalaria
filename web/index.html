@@ -13,7 +13,7 @@
     <header>
       <div class="brand"><div class="brand-badge">CAV</div><div><strong>EsAO</strong><div class="hint">Curso de Cavalaria</div></div></div>
       <div class="title"><h1 id="eventTitle">Escolha de Organização Militar</h1><p id="eventCourse">Curso de Cavalaria</p></div>
-      <div class="header-actions"><a class="btn" href="admin.html" style="text-decoration:none">Administração</a></div>
+      <div class="header-actions"><div class="zoom-controls" aria-label="Controle de zoom"><button class="btn zoom-btn" id="zoomOut" title="Diminuir zoom">−</button><span id="zoomValue">100%</span><button class="btn zoom-btn" id="zoomIn" title="Aumentar zoom">+</button><button class="btn small" id="zoomReset" title="Restaurar zoom">100%</button></div><a class="btn" href="admin.html" style="text-decoration:none">Administração</a></div>
     </header>
     <div class="statusbar">
       <span class="badge"><span class="dot" id="connDot"></span><span id="connText">Conectando…</span></span>
@@ -38,18 +38,8 @@
       <div class="q"><label>“AQUECE”</label><div class="name" id="aquece">—</div></div>
     </div>
     <div class="queue-extra" id="queueExtra"><div class="upcoming" id="upcoming"></div></div>
-    <div class="last-choice" id="lastChoice">
-      <div class="last-choice-label">ÚLTIMA ESCOLHA</div>
-      <div class="last-choice-body"><strong id="lastChoiceName">Nenhuma escolha realizada</strong><span id="lastChoiceOm">—</span></div>
-    </div>
+    <div class="last-choice" id="lastChoice"><div class="last-choice-label">ÚLTIMA ESCOLHA</div><div class="last-choice-body"><strong id="lastChoiceName">Nenhuma escolha realizada</strong><span id="lastChoiceOm">—</span></div></div>
   </section>
-  <dialog id="confirmDialog"><div class="modal">
-    <h2>Confirmar escolha</h2>
-    <div class="confirm-box"><div class="confirm-name" id="confirmName"></div><div class="confirm-om" id="confirmOm"></div></div>
-    <p>Confirme somente se esta é a OM escolhida pelo militar que está em pista. Depois da confirmação, a fila avançará automaticamente.</p>
-    <div class="modal-actions"><button class="btn" id="cancelChoice">Cancelar</button><button class="btn primary" id="confirmChoice">Confirmar escolha</button></div>
-  </div></dialog>
-  <div class="toast" id="toast"></div>
-  <script src="app.js"></script>
-</body>
-</html>
+  <dialog id="confirmDialog"><div class="modal"><h2>Confirmar escolha</h2><div class="confirm-box"><div class="confirm-name" id="confirmName"></div><div class="confirm-om" id="confirmOm"></div></div><p>Confirme somente se esta é a OM escolhida pelo militar que está em pista. Depois da confirmação, a fila avançará automaticamente.</p><div class="modal-actions"><button class="btn" id="cancelChoice">Cancelar</button><button class="btn primary" id="confirmChoice">Confirmar escolha</button></div></div></dialog>
+  <div class="toast" id="toast"></div><script src="app.js"></script>
+</body></html>
