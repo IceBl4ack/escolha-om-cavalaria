@@ -11,10 +11,16 @@
   function setBusy(v){ busy=v; qs('app').classList.toggle('loading',v); }
   async function api(url, opts={}){ const r=await fetch(url,{cache:'no-store',headers:{'Content-Type':'application/json',...(opts.headers||{})},...opts}); let data={}; try{data=await r.json()}catch(_){ } if(!r.ok) throw new Error(data.detail || `Erro HTTP ${r.status}`); return data; }
   async function loadState(silent=false){
-    if(!silent)setBusy(true);
-    try{ state=await api('/api/state'); render(); qs('connText').textContent='Sincronizado'; qs('connDot').className='dot ok'; }
-    catch(e){ qs('connText').textContent='Falha de conexão'; qs('connDot').className='dot off'; if(!silent)toast(e.message); }
-    finally{ if(!silent)setBusy(false); }
+    try{
+      state=await api('/api/state');
+      qs('connText').textContent='Sincronizado';
+      qs('connDot').className='dot ok';
+      render();
+    } catch(e){
+      qs('connText').textContent='Falha de conexão';
+      qs('connDot').className='dot off';
+      if(!silent)toast(e.message);
+    }
   }
   function currentQueue(offset=0){ if(!state?.event)return null; const pos=Number(state.event.current_position)+offset; return (state.queue||[]).find(x=>Number(x.position)===pos)||null; }
   function render(){
@@ -65,8 +71,8 @@
   async function confirmChoice(){
     if(!pendingUnit||pendingPosition==null||busy)return;
     setBusy(true); qs('confirmChoice').disabled=true;
-    try{ state=await api('/api/choose',{method:'POST',body:JSON.stringify({unit_id:pendingUnit.id,expected_position:pendingPosition})}); qs('confirmDialog').close(); pendingUnit=null; pendingPosition=null; render(); toast('Escolha registrada. A fila avançou.'); }
-    catch(e){ toast(e.message); qs('confirmDialog').close(); pendingUnit=null; pendingPosition=null; await loadState(true); }
+    try{ state=await api('/api/choose',{method:'POST',body:JSON.stringify({unit_id:pendingUnit.id,expected_position:pendingPosition})}); qs('confirmDialog').close(); pendingUnit=null; pendingPosition=null; setBusy(false); render(); toast('Escolha registrada. A fila avançou.'); }
+    catch(e){ toast(e.message); qs('confirmDialog').close(); pendingUnit=null; pendingPosition=null; setBusy(false); await loadState(true); }
     finally{ qs('confirmChoice').disabled=false; setBusy(false); if(state)renderUnits(); }
   }
   qs('cancelChoice').onclick=()=>{qs('confirmDialog').close();pendingUnit=null;pendingPosition=null;};
