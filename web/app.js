@@ -1,91 +1,18 @@
 (() => {
-  let state = null;
-  let pendingUnit = null;
-  let pendingPosition = null;
-  let pollTimer = null;
-  let busy = false;
-  const POLL_MS = 20000;
-  const qs = id => document.getElementById(id);
-  const esc = s => String(s ?? '').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
-  function toast(msg){ const t=qs('toast'); t.textContent=msg; t.classList.add('show'); setTimeout(()=>t.classList.remove('show'),2500); }
-  function setBusy(v){ busy=v; qs('app').classList.toggle('loading',v); }
-  async function api(url, opts={}){ const r=await fetch(url,{cache:'no-store',headers:{'Content-Type':'application/json',...(opts.headers||{})},...opts}); let data={}; try{data=await r.json()}catch(_){ } if(!r.ok) throw new Error(data.detail || `Erro HTTP ${r.status}`); return data; }
-  async function loadState(silent=false){
-    try{
-      state=await api('/api/state');
-      qs('connText').textContent='Sincronizado';
-      qs('connDot').className='dot ok';
-      render();
-    } catch(e){
-      qs('connText').textContent='Falha de conexão';
-      qs('connDot').className='dot off';
-      if(!silent)toast(e.message);
-    }
-  }
-  function currentQueue(offset=0){ if(!state?.event)return null; const pos=Number(state.event.current_position)+offset; return (state.queue||[]).find(x=>Number(x.position)===pos)||null; }
-  function renderLastChoice(){
-    const choices=state?.choices||[];
-    if(!choices.length){ qs('lastChoiceName').textContent='Nenhuma escolha realizada'; qs('lastChoiceOm').textContent='—'; return; }
-    const last=choices.reduce((a,b)=>Number(b.position)>Number(a.position)?b:a);
-    const unit=(state.units||[]).find(u=>Number(u.id)===Number(last.unit_id));
-    qs('lastChoiceName').textContent=`${last.position}º · ${last.name}`;
-    qs('lastChoiceOm').textContent=unit?`${unit.unit_name} — ${unit.city}`:'OM selecionada';
-  }
-  function render(){
-    if(!state)return;
-    const e=state.event, current=currentQueue(0);
-    qs('eventTitle').textContent=e.title; qs('eventCourse').textContent=e.course;
-    qs('eventStatus').textContent=e.is_open?'Escolhas abertas':'Escolhas fechadas'; qs('eventDot').className='dot '+(e.is_open?'ok':'off');
-    const total=(state.units||[]).reduce((a,u)=>a+Number(u.capacity||0),0), used=(state.choices||[]).length;
-    qs('totalVagas').textContent=total; qs('totalEscolhas').textContent=used; qs('restantes').textContent=Math.max(0,total-used); qs('posAtual').textContent=current?current.position:'—';
-    qs('pista').textContent=current?.name||'—'; qs('paddock').textContent=currentQueue(1)?.name||'—'; qs('aquece').textContent=currentQueue(2)?.name||'—';
-    qs('upcoming').innerHTML=(state.queue||[]).filter(x=>Number(x.position)>=Number(e.current_position)+3).slice(0,12).map(x=>`<span class="chip">${x.position}º · ${esc(x.name)}</span>`).join('')||'<span class="hint">Não há mais nomes após “Aquece”.</span>';
-    renderLastChoice();
-    const n=qs('myNotice');
-    if(!current){ n.className='notice'; n.innerHTML='<strong>Fila concluída ou ainda não cadastrada.</strong>'; }
-    else if(e.is_open){ n.className='notice turn'; n.innerHTML=`<strong>${esc(current.name)} está em pista.</strong> Escolha a OM abaixo e confirme.`; }
-    else { n.className='notice closed'; n.innerHTML=`<strong>${esc(current.name)} está em pista.</strong> Aguarde a organização abrir as escolhas.`; }
-    renderUnits();
-  }
-  function renderUnits(){
-    const search=(qs('search').value||'').trim().toLowerCase(), choicesByUnit=new Map();
-    for(const c of state.choices||[]){ if(!choicesByUnit.has(c.unit_id))choicesByUnit.set(c.unit_id,[]); choicesByUnit.get(c.unit_id).push(c); }
-    const groups={};
-    for(const u of state.units||[]){ if(search&&!`${u.region_code} ${u.unit_name} ${u.city}`.toLowerCase().includes(search))continue; const key=`${u.side}|${u.region_code}|${u.color}`; (groups[key] ||= []).push(u); }
-    ['left','right'].forEach(side=>{
-      const col=qs(side==='left'?'leftCol':'rightCol'); col.innerHTML='';
-      Object.entries(groups).filter(([k])=>k.startsWith(side+'|')).forEach(([key,units])=>{
-        const [,region,color]=key.split('|'), cap=units.reduce((a,u)=>a+Number(u.capacity),0), used=units.reduce((a,u)=>a+Number(u.used),0);
-        const sec=document.createElement('section'); sec.className='region'; sec.style.setProperty('--region',color);
-        sec.innerHTML=`<div class="region-head"><div class="region-title">${esc(region)} <span style="font-weight:700">(${cap} vagas)</span></div><div class="region-count">${used}/${cap} ocupadas</div></div><div class="unit-list"></div>`;
-        const list=sec.querySelector('.unit-list');
-        for(const u of units){
-          const full=Number(u.remaining)<=0, can=!!currentQueue(0) && state.event.is_open && !full && !busy;
-          const div=document.createElement('div'); div.className='unit '+(full?'full':'');
-          const assigned=(choicesByUnit.get(u.id)||[]).map(c=>`<span class="chip">${c.position}º · ${esc(c.name)}</span>`).join('');
-          div.innerHTML=`<div class="unit-name">${esc(u.unit_name)}</div><div class="city">${esc(u.city)}</div><div class="vac"><strong>${u.remaining}</strong> / ${u.capacity}</div><button class="choose" ${can?'':'disabled'}>${full?'Lotada':'Escolher'}</button>${assigned?`<div class="assigned">${assigned}</div>`:''}`;
-          div.querySelector('.choose').onclick=()=>openChoice(u); list.appendChild(div);
-        }
-        col.appendChild(sec);
-      });
-    });
-  }
-  function openChoice(u){
-    const current=currentQueue(0);
-    if(!state.event.is_open)return toast('As escolhas estão fechadas.');
-    if(!current)return toast('Não há militar em pista.');
-    pendingUnit=u; pendingPosition=Number(current.position);
-    qs('confirmName').textContent=`${current.position}º · ${current.name}`; qs('confirmOm').textContent=`${u.unit_name} — ${u.city}`; qs('confirmDialog').showModal();
-  }
-  async function confirmChoice(){
-    if(!pendingUnit||pendingPosition==null||busy)return;
-    setBusy(true); qs('confirmChoice').disabled=true;
-    try{ state=await api('/api/choose',{method:'POST',body:JSON.stringify({unit_id:pendingUnit.id,expected_position:pendingPosition})}); qs('confirmDialog').close(); pendingUnit=null; pendingPosition=null; setBusy(false); render(); toast('Escolha registrada. A fila avançou.'); }
-    catch(e){ toast(e.message); qs('confirmDialog').close(); pendingUnit=null; pendingPosition=null; setBusy(false); await loadState(true); }
-    finally{ qs('confirmChoice').disabled=false; setBusy(false); if(state)renderUnits(); }
-  }
-  qs('cancelChoice').onclick=()=>{qs('confirmDialog').close();pendingUnit=null;pendingPosition=null;};
-  qs('confirmChoice').onclick=confirmChoice; qs('refreshBtn').onclick=()=>loadState(); qs('search').oninput=()=>state&&renderUnits(); qs('toggleQueue').onclick=()=>qs('queueExtra').classList.toggle('show');
-  loadState(); pollTimer=setInterval(()=>loadState(true),POLL_MS);
-  if('serviceWorker' in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
+  let state=null,pendingUnit=null,pendingPosition=null,pollTimer=null,busy=false;
+  const POLL_MS=20000,qs=id=>document.getElementById(id),esc=s=>String(s??'').replace(/[&<>'"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;',"'":'&#39;','"':'&quot;'}[c]));
+  let zoom=Number(localStorage.getItem('escolhaOmZoom')||100); if(![75,80,85,90,95,100,105,110,115,120,125].includes(zoom))zoom=100;
+  function applyZoom(){document.documentElement.style.setProperty('--ui-scale',zoom/100);qs('zoomValue').textContent=`${zoom}%`;localStorage.setItem('escolhaOmZoom',String(zoom));}
+  function changeZoom(delta){zoom=Math.max(75,Math.min(125,zoom+delta));applyZoom();}
+  function toast(msg){const t=qs('toast');t.textContent=msg;t.classList.add('show');setTimeout(()=>t.classList.remove('show'),2500)}
+  function setBusy(v){busy=v;qs('app').classList.toggle('loading',v)}
+  async function api(url,opts={}){const r=await fetch(url,{cache:'no-store',headers:{'Content-Type':'application/json',...(opts.headers||{})},...opts});let data={};try{data=await r.json()}catch(_){}if(!r.ok)throw new Error(data.detail||`Erro HTTP ${r.status}`);return data}
+  async function loadState(silent=false){try{state=await api('/api/state');qs('connText').textContent='Sincronizado';qs('connDot').className='dot ok';render()}catch(e){qs('connText').textContent='Falha de conexão';qs('connDot').className='dot off';if(!silent)toast(e.message)}}
+  function currentQueue(offset=0){if(!state?.event)return null;const pos=Number(state.event.current_position)+offset;return(state.queue||[]).find(x=>Number(x.position)===pos)||null}
+  function renderLastChoice(){const choices=state?.choices||[];if(!choices.length){qs('lastChoiceName').textContent='Nenhuma escolha realizada';qs('lastChoiceOm').textContent='—';return}const last=choices.reduce((a,b)=>Number(b.position)>Number(a.position)?b:a);const unit=(state.units||[]).find(u=>Number(u.id)===Number(last.unit_id));qs('lastChoiceName').textContent=`${last.position}º · ${last.name}`;qs('lastChoiceOm').textContent=unit?`${unit.unit_name} — ${unit.city}`:'OM selecionada'}
+  function render(){if(!state)return;const e=state.event,current=currentQueue(0);qs('eventTitle').textContent=e.title;qs('eventCourse').textContent=e.course;qs('eventStatus').textContent=e.is_open?'Escolhas abertas':'Escolhas fechadas';qs('eventDot').className='dot '+(e.is_open?'ok':'off');const total=(state.units||[]).reduce((a,u)=>a+Number(u.capacity||0),0),used=(state.choices||[]).length;qs('totalVagas').textContent=total;qs('totalEscolhas').textContent=used;qs('restantes').textContent=Math.max(0,total-used);qs('posAtual').textContent=current?current.position:'—';qs('pista').textContent=current?.name||'—';qs('paddock').textContent=currentQueue(1)?.name||'—';qs('aquece').textContent=currentQueue(2)?.name||'—';qs('upcoming').innerHTML=(state.queue||[]).filter(x=>Number(x.position)>=Number(e.current_position)+3).slice(0,12).map(x=>`<span class="chip">${x.position}º · ${esc(x.name)}</span>`).join('')||'<span class="hint">Não há mais nomes após “Aquece”.</span>';renderLastChoice();const n=qs('myNotice');if(!current){n.className='notice';n.innerHTML='<strong>Fila concluída ou ainda não cadastrada.</strong>'}else if(e.is_open){n.className='notice turn';n.innerHTML=`<strong>${esc(current.name)} está em pista.</strong> Escolha a OM abaixo e confirme.`}else{n.className='notice closed';n.innerHTML=`<strong>${esc(current.name)} está em pista.</strong> Aguarde a organização abrir as escolhas.`}renderUnits()}
+  function renderUnits(){const search=(qs('search').value||'').trim().toLowerCase(),choicesByUnit=new Map();for(const c of state.choices||[]){if(!choicesByUnit.has(c.unit_id))choicesByUnit.set(c.unit_id,[]);choicesByUnit.get(c.unit_id).push(c)}const groups={};for(const u of state.units||[]){if(search&&!`${u.region_code} ${u.unit_name} ${u.city}`.toLowerCase().includes(search))continue;const key=`${u.side}|${u.region_code}|${u.color}`;(groups[key]||=[]).push(u)}['left','right'].forEach(side=>{const col=qs(side==='left'?'leftCol':'rightCol');col.innerHTML='';Object.entries(groups).filter(([k])=>k.startsWith(side+'|')).forEach(([key,units])=>{const[,region,color]=key.split('|'),cap=units.reduce((a,u)=>a+Number(u.capacity),0),used=units.reduce((a,u)=>a+Number(u.used),0);const sec=document.createElement('section');sec.className='region';sec.style.setProperty('--region',color);sec.innerHTML=`<div class="region-head"><div class="region-title">${esc(region)} <span style="font-weight:700">(${cap} vagas)</span></div><div class="region-count">${used}/${cap} ocupadas</div></div><div class="unit-list"></div>`;const list=sec.querySelector('.unit-list');for(const u of units){const full=Number(u.remaining)<=0,can=!!currentQueue(0)&&state.event.is_open&&!full&&!busy;const div=document.createElement('div');div.className='unit '+(full?'full':'');const assigned=(choicesByUnit.get(u.id)||[]).map(c=>`<span class="chip">${c.position}º · ${esc(c.name)}</span>`).join('');div.innerHTML=`<div class="unit-name">${esc(u.unit_name)}</div><div class="city">${esc(u.city)}</div><div class="vac"><strong>${u.remaining}</strong> / ${u.capacity}</div><button class="choose" ${can?'':'disabled'}>${full?'Lotada':'Escolher'}</button>${assigned?`<div class="assigned">${assigned}</div>`:''}`;div.querySelector('.choose').onclick=()=>openChoice(u);list.appendChild(div)}col.appendChild(sec)})})}
+  function openChoice(u){const current=currentQueue(0);if(!state.event.is_open)return toast('As escolhas estão fechadas.');if(!current)return toast('Não há militar em pista.');pendingUnit=u;pendingPosition=Number(current.position);qs('confirmName').textContent=`${current.position}º · ${current.name}`;qs('confirmOm').textContent=`${u.unit_name} — ${u.city}`;qs('confirmDialog').showModal()}
+  async function confirmChoice(){if(!pendingUnit||pendingPosition==null||busy)return;setBusy(true);qs('confirmChoice').disabled=true;try{state=await api('/api/choose',{method:'POST',body:JSON.stringify({unit_id:pendingUnit.id,expected_position:pendingPosition})});qs('confirmDialog').close();pendingUnit=null;pendingPosition=null;setBusy(false);render();toast('Escolha registrada. A fila avançou.')}catch(e){toast(e.message);qs('confirmDialog').close();pendingUnit=null;pendingPosition=null;setBusy(false);await loadState(true)}finally{qs('confirmChoice').disabled=false;setBusy(false);if(state)renderUnits()}}
+  qs('cancelChoice').onclick=()=>{qs('confirmDialog').close();pendingUnit=null;pendingPosition=null};qs('confirmChoice').onclick=confirmChoice;qs('refreshBtn').onclick=()=>loadState();qs('search').oninput=()=>state&&renderUnits();qs('toggleQueue').onclick=()=>qs('queueExtra').classList.toggle('show');qs('zoomOut').onclick=()=>changeZoom(-5);qs('zoomIn').onclick=()=>changeZoom(5);qs('zoomReset').onclick=()=>{zoom=100;applyZoom()};applyZoom();loadState();pollTimer=setInterval(()=>loadState(true),POLL_MS);if('serviceWorker'in navigator)navigator.serviceWorker.register('sw.js').catch(()=>{});
 })();
