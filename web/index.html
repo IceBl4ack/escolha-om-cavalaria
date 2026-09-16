@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
+  <title>Escolha de OM — Cavalaria</title>
+  <link rel="manifest" href="manifest.webmanifest" />
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app" id="app">
+    <header>
+      <div class="brand"><div class="brand-badge">CAV</div><div><strong>EsAO</strong><div class="hint">Curso de Cavalaria</div></div></div>
+      <div class="title"><h1 id="eventTitle">Escolha de Organização Militar</h1><p id="eventCourse">Curso de Cavalaria</p></div>
+      <div class="header-actions">
+        <button class="btn" id="accessBtn">Meu código</button>
+        <button class="btn" id="logoutBtn" hidden>Sair</button>
+        <a class="btn" href="admin.html" style="text-decoration:none">Administração</a>
+      </div>
+    </header>
+
+    <div class="statusbar">
+      <span class="badge"><span class="dot" id="connDot"></span><span id="connText">Conectando…</span></span>
+      <span class="badge"><span class="dot" id="eventDot"></span><span id="eventStatus">Aguardando evento…</span></span>
+      <span class="badge" id="userBadge">Modo visitante</span>
+    </div>
+
+    <div class="notice" id="myNotice">Digite seu código de acesso para o sistema identificar sua posição na fila.</div>
+
+    <section class="stats">
+      <div class="stat"><div class="k">Vagas totais</div><div class="v" id="totalVagas">—</div></div>
+      <div class="stat"><div class="k">Escolhas realizadas</div><div class="v" id="totalEscolhas">—</div></div>
+      <div class="stat"><div class="k">Vagas restantes</div><div class="v" id="restantes">—</div></div>
+      <div class="stat"><div class="k">Posição atual</div><div class="v" id="posAtual">—</div></div>
+    </section>
+
+    <div class="toolbar">
+      <input class="search" id="search" placeholder="Buscar OM, cidade ou Comando Militar..." />
+      <button class="btn" id="refreshBtn">Atualizar</button>
+    </div>
+
+    <main class="layout">
+      <div class="col" id="leftCol"></div>
+      <div class="col" id="rightCol"></div>
+    </main>
+  </div>
+
+  <section class="queue" aria-label="Ordem de escolha">
+    <div class="queue-head"><span>ORDEM DE ESCOLHA</span><button class="btn small" id="toggleQueue">ver próximos</button></div>
+    <div class="queue-grid">
+      <div class="q current"><label>“EM PISTA”</label><div class="name" id="pista">—</div></div>
+      <div class="q"><label>“PADDOCK”</label><div class="name" id="paddock">—</div></div>
+      <div class="q"><label>“AQUECE”</label><div class="name" id="aquece">—</div></div>
+    </div>
+    <div class="queue-extra" id="queueExtra"><div class="upcoming" id="upcoming"></div></div>
+  </section>
+
+  <dialog id="accessDialog"><div class="modal">
+    <h2>Acesso individual</h2>
+    <p>Digite o código fornecido pela organização. Cada militar usa seu próprio código.</p>
+    <input class="textinput" id="accessCode" autocomplete="one-time-code" placeholder="Código de acesso" style="width:100%;text-transform:uppercase" />
+    <div class="hint">O código identifica sua posição e libera a escolha somente quando chegar sua vez.</div>
+    <div class="modal-actions"><button class="btn" id="cancelAccess">Cancelar</button><button class="btn primary" id="saveAccess">Entrar</button></div>
+  </div></dialog>
+
+  <dialog id="confirmDialog"><div class="modal">
+    <h2>Confirmar escolha</h2>
+    <div class="confirm-box"><div class="confirm-name" id="confirmName"></div><div class="confirm-om" id="confirmOm"></div></div>
+    <p>Depois da confirmação, a escolha será gravada no banco e a fila avançará automaticamente.</p>
+    <div class="modal-actions"><button class="btn" id="cancelChoice">Cancelar</button><button class="btn primary" id="confirmChoice">Confirmar escolha</button></div>
+  </div></dialog>
+
+  <div class="toast" id="toast"></div>
+  <script src="app.js"></script>
+</body>
+</html>
