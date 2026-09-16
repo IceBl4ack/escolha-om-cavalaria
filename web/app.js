@@ -23,6 +23,14 @@
     }
   }
   function currentQueue(offset=0){ if(!state?.event)return null; const pos=Number(state.event.current_position)+offset; return (state.queue||[]).find(x=>Number(x.position)===pos)||null; }
+  function renderLastChoice(){
+    const choices=state?.choices||[];
+    if(!choices.length){ qs('lastChoiceName').textContent='Nenhuma escolha realizada'; qs('lastChoiceOm').textContent='—'; return; }
+    const last=choices.reduce((a,b)=>Number(b.position)>Number(a.position)?b:a);
+    const unit=(state.units||[]).find(u=>Number(u.id)===Number(last.unit_id));
+    qs('lastChoiceName').textContent=`${last.position}º · ${last.name}`;
+    qs('lastChoiceOm').textContent=unit?`${unit.unit_name} — ${unit.city}`:'OM selecionada';
+  }
   function render(){
     if(!state)return;
     const e=state.event, current=currentQueue(0);
@@ -32,6 +40,7 @@
     qs('totalVagas').textContent=total; qs('totalEscolhas').textContent=used; qs('restantes').textContent=Math.max(0,total-used); qs('posAtual').textContent=current?current.position:'—';
     qs('pista').textContent=current?.name||'—'; qs('paddock').textContent=currentQueue(1)?.name||'—'; qs('aquece').textContent=currentQueue(2)?.name||'—';
     qs('upcoming').innerHTML=(state.queue||[]).filter(x=>Number(x.position)>=Number(e.current_position)+3).slice(0,12).map(x=>`<span class="chip">${x.position}º · ${esc(x.name)}</span>`).join('')||'<span class="hint">Não há mais nomes após “Aquece”.</span>';
+    renderLastChoice();
     const n=qs('myNotice');
     if(!current){ n.className='notice'; n.innerHTML='<strong>Fila concluída ou ainda não cadastrada.</strong>'; }
     else if(e.is_open){ n.className='notice turn'; n.innerHTML=`<strong>${esc(current.name)} está em pista.</strong> Escolha a OM abaixo e confirme.`; }
