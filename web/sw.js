@@ -1,4 +1,4 @@
-const CACHE='escolha-om-docker-v4';
+const CACHE='escolha-om-docker-v5';
 const STATIC=['./','./index.html','./admin.html','./styles.css','./app.js','./admin.js','./manifest.webmanifest','./icon-192.png','./icon-512.png'];
 
 self.addEventListener('install',e=>{
@@ -17,10 +17,7 @@ self.addEventListener('activate',e=>{
 self.addEventListener('fetch',e=>{
   const u=new URL(e.request.url);
   if(u.origin!==location.origin||u.pathname.startsWith('/api/')) return;
-
-  // JS, HTML e o próprio service worker devem sempre vir primeiro da rede.
-  // O cache fica apenas como fallback para uso offline.
-  if(['document','script'].includes(e.request.destination) || u.pathname.endsWith('/sw.js')){
+  if(['document','script','style'].includes(e.request.destination) || u.pathname.endsWith('/sw.js')){
     e.respondWith(fetch(e.request,{cache:'no-store'}).then(r=>{
       const copy=r.clone();
       caches.open(CACHE).then(c=>c.put(e.request,copy));
@@ -28,7 +25,6 @@ self.addEventListener('fetch',e=>{
     }).catch(()=>caches.match(e.request)));
     return;
   }
-
   e.respondWith(fetch(e.request).then(r=>{
     const copy=r.clone();
     caches.open(CACHE).then(c=>c.put(e.request,copy));
