@@ -9,7 +9,7 @@ import psycopg
 from psycopg.rows import dict_row
 from fastapi import FastAPI, Header, HTTPException
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 DATABASE_URL = os.getenv("DATABASE_URL", "postgresql://escolhaom:escolhaom@db:5432/escolhaom")
 ADMIN_PIN = os.getenv("ADMIN_PIN", "troque-este-pin")
@@ -54,8 +54,8 @@ UNITS = [
 ]
 
 class ChoiceBody(BaseModel):
-    code: str = Field(min_length=1, max_length=64)
     unit_id: int
+    expected_position: int
 
 class QueueBody(BaseModel):
     names: list[str]
@@ -157,7 +157,7 @@ def verify_admin(pin: Optional[str]):
         raise HTTPException(status_code=401, detail="PIN administrativo inválido")
 
 
-def get_state(conn, access_code: Optional[str] = None):
+def get_state(conn):
     event = conn.execute("select * from event_state where id=1").fetchone()
     units = conn.execute("""
         select u.*,
@@ -180,22 +180,17 @@ def get_state(conn, access_code: Optional[str] = None):
         join units u on u.id=c.unit_id
         order by c.participant_position
     """).fetchall()
-    me = None
-    if access_code:
-        p = conn.execute("select id,position,name from participants where upper(access_code)=upper(%s) limit 1", (access_code.strip(),)).fetchone()
-        if p:
-            chosen = conn.execute("select 1 from choices where participant_id=%s", (p["id"],)).fetchone() is not None
-            me = {
-                "id": p["id"], "position": p["position"], "name": p["name"], "chosen": chosen,
-                "can_choose": bool(event["is_open"] and not chosen and p["position"] == event["current_position"]),
-            }
+    current = conn.execute(
+        "select id,position,name from participants where position=%s limit 1",
+        (event["current_position"],),
+    ).fetchone()
     return {
         "event": {
             "title": event["title"], "course": event["course"],
             "current_position": event["current_position"], "is_open": event["is_open"],
             "version": event["version"], "updated_at": event["updated_at"].isoformat(),
         },
-        "me": me,
+        "current": dict(current) if current else None,
         "units": [dict(x) for x in units],
         "queue": [dict(x) for x in queue],
         "choices": [{**dict(x), "created_at": x["created_at"].isoformat()} for x in choices],
@@ -208,9 +203,9 @@ def health():
 
 
 @app.get("/api/state")
-def state(code: Optional[str] = None):
+def state():
     with connect() as conn:
-        return get_state(conn, code)
+        return get_state(conn)
 
 
 @app.post("/api/choose")
@@ -218,24 +213,29 @@ def choose(body: ChoiceBody):
     with connect() as conn:
         try:
             with conn.cursor() as cur:
+                # Serializa as escolhas e rejeita telas desatualizadas.
                 event = cur.execute("select * from event_state where id=1 for update").fetchone()
                 if not event["is_open"]:
                     raise HTTPException(409, "As escolhas estão fechadas")
+                if body.expected_position != event["current_position"]:
+                    raise HTTPException(409, "A fila já avançou. Atualize a tela antes de escolher.")
+
                 participant = cur.execute(
-                    "select * from participants where upper(access_code)=upper(%s) limit 1", (body.code.strip(),)
+                    "select * from participants where position=%s limit 1",
+                    (event["current_position"],),
                 ).fetchone()
                 if not participant:
-                    raise HTTPException(401, "Código de acesso inválido")
+                    raise HTTPException(409, "Não há militar em pista nesta posição")
                 if cur.execute("select 1 from choices where participant_id=%s", (participant["id"],)).fetchone():
-                    raise HTTPException(409, "Você já realizou sua escolha")
-                if participant["position"] != event["current_position"]:
-                    raise HTTPException(409, "Ainda não é sua vez de escolher")
+                    raise HTTPException(409, "Esta posição já realizou a escolha")
+
                 unit = cur.execute("select * from units where id=%s for update", (body.unit_id,)).fetchone()
                 if not unit:
                     raise HTTPException(404, "OM inválida")
                 used = cur.execute("select count(*) as n from choices where unit_id=%s", (body.unit_id,)).fetchone()["n"]
                 if used >= unit["capacity"]:
                     raise HTTPException(409, "Essa OM não possui mais vagas")
+
                 cur.execute(
                     "insert into choices(participant_id,unit_id,participant_position) values(%s,%s,%s)",
                     (participant["id"], body.unit_id, participant["position"]),
@@ -245,9 +245,12 @@ def choose(body: ChoiceBody):
                     where p.position > %s and not exists(select 1 from choices c where c.participant_id=p.id)
                 """, (participant["position"],)).fetchone()["pos"]
                 new_pos = nxt if nxt is not None else participant["position"] + 1
-                cur.execute("update event_state set current_position=%s,version=version+1,updated_at=now() where id=1", (new_pos,))
+                cur.execute(
+                    "update event_state set current_position=%s,version=version+1,updated_at=now() where id=1",
+                    (new_pos,),
+                )
             conn.commit()
-            return get_state(conn, body.code)
+            return get_state(conn)
         except HTTPException:
             conn.rollback()
             raise
@@ -260,10 +263,7 @@ def choose(body: ChoiceBody):
 def admin_state(x_admin_pin: Optional[str] = Header(default=None)):
     verify_admin(x_admin_pin)
     with connect() as conn:
-        s = get_state(conn)
-        codes = conn.execute("select position,name,access_code as code from participants order by position").fetchall()
-        s["codes"] = [dict(x) for x in codes]
-        return s
+        return get_state(conn)
 
 
 @app.post("/api/admin/queue")
@@ -282,10 +282,7 @@ def admin_queue(body: QueueBody, x_admin_pin: Optional[str] = Header(default=Non
                 cur.execute("insert into participants(position,name,access_code) values(%s,%s,%s)", (pos, name, code))
             cur.execute("update event_state set current_position=1,is_open=false,version=version+1,updated_at=now() where id=1")
         conn.commit()
-        s = get_state(conn)
-        codes = conn.execute("select position,name,access_code as code from participants order by position").fetchall()
-        s["codes"] = [dict(x) for x in codes]
-        return s
+        return get_state(conn)
 
 
 @app.post("/api/admin/open")
@@ -294,9 +291,7 @@ def admin_open(body: OpenBody, x_admin_pin: Optional[str] = Header(default=None)
     with connect() as conn:
         conn.execute("update event_state set is_open=%s,version=version+1,updated_at=now() where id=1", (body.open,))
         conn.commit()
-        s = get_state(conn)
-        s["codes"] = [dict(x) for x in conn.execute("select position,name,access_code as code from participants order by position").fetchall()]
-        return s
+        return get_state(conn)
 
 
 @app.post("/api/admin/undo")
@@ -311,9 +306,7 @@ def admin_undo(x_admin_pin: Optional[str] = Header(default=None)):
             cur.execute("delete from choices where id=%s", (last["id"],))
             cur.execute("update event_state set current_position=%s,version=version+1,updated_at=now() where id=1", (last["participant_position"],))
         conn.commit()
-        s = get_state(conn)
-        s["codes"] = [dict(x) for x in conn.execute("select position,name,access_code as code from participants order by position").fetchall()]
-        return s
+        return get_state(conn)
 
 
 @app.post("/api/admin/reset")
@@ -325,9 +318,7 @@ def admin_reset(x_admin_pin: Optional[str] = Header(default=None)):
             cur.execute("delete from choices")
             cur.execute("update event_state set current_position=1,is_open=false,version=version+1,updated_at=now() where id=1")
         conn.commit()
-        s = get_state(conn)
-        s["codes"] = [dict(x) for x in conn.execute("select position,name,access_code as code from participants order by position").fetchall()]
-        return s
+        return get_state(conn)
 
 
 @app.exception_handler(HTTPException)
