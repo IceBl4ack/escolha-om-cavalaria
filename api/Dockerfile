@@ -4,5 +4,6 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 COPY app.py .
+COPY admin_remove.py .
 EXPOSE 8000
-CMD ["uvicorn","app:app","--host","0.0.0.0","--port","8000","--workers","1","--proxy-headers"]
+CMD ["uvicorn","admin_remove:app","--host","0.0.0.0","--port","8000","--workers","1","--proxy-headers"]
