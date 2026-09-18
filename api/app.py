@@ -21,6 +21,7 @@ class ChoiceBody(BaseModel): unit_id:int; expected_position:int
 class EditChoiceBody(BaseModel): position:int; unit_id:int
 class QueueBody(BaseModel): names:list[str]
 class OpenBody(BaseModel): open:bool
+class UnitsBody(BaseModel): rows:list[str]
 def connect(): return psycopg.connect(DATABASE_URL,row_factory=dict_row,autocommit=False)
 def wait_for_db():
  last=None
@@ -85,6 +86,38 @@ def admin_queue(body:QueueBody,x_admin_pin:Optional[str]=Header(default=None)):
    for pos,name in enumerate(names,start=1): cur.execute("insert into participants(position,name,access_code) values(%s,%s,%s)",(pos,name,secrets.token_hex(6).upper()))
    cur.execute("update event_state set current_position=1,is_open=false,version=version+1,updated_at=now() where id=1")
   conn.commit(); return get_state(conn)
+@app.post("/api/admin/units")
+def admin_units(body:UnitsBody,x_admin_pin:Optional[str]=Header(default=None)):
+ verify_admin(x_admin_pin)
+ parsed=[]
+ colors={"CMA":"#178735","CMNE":"#ef7f1a","CML":"#ef2020","CMP":"#2f5c95","CMO":"#63b63c","CMSE":"#ee4444","CMS":"#7fc3d3"}
+ for i,row in enumerate(body.rows,start=1):
+  if not row or not row.strip(): continue
+  parts=[p.strip() for p in row.split(";")]
+  if len(parts) not in (3,4) or not all(parts[:3]): raise HTTPException(400,f"Linha {i}: use COMANDO; OM; CIDADE; VAGAS (vagas é opcional e vale 1 se omitido)")
+  region,name,city=parts[:3]
+  try: capacity=int(parts[3]) if len(parts)==4 and parts[3] else 1
+  except ValueError: raise HTTPException(400,f"Linha {i}: quantitativo de vagas inválido")
+  if capacity<1: raise HTTPException(400,f"Linha {i}: o quantitativo deve ser maior que zero")
+  parsed.append((region.upper(),name,city,capacity))
+ if not parsed: raise HTTPException(400,"A lista de OMs está vazia")
+ with connect() as conn:
+  try:
+   with conn.cursor() as cur:
+    cur.execute("select * from event_state where id=1 for update"); keep=[]
+    for idx,(region,name,city,capacity) in enumerate(parsed,start=1):
+     existing=cur.execute("select id from units where unit_name=%s and city=%s",(name,city)).fetchone()
+     used=cur.execute("select count(*) as n from choices c join units u on u.id=c.unit_id where u.unit_name=%s and u.city=%s",(name,city)).fetchone()["n"]
+     if capacity<used: raise HTTPException(409,f"{name} — {city}: há {used} escolha(s) registrada(s); vagas não podem ser reduzidas para {capacity}")
+     side="left" if region=="CMS" else "right"; color=colors.get(region,"#64748b")
+     cur.execute("insert into units(region_code,unit_name,city,capacity,display_order,side,color) values(%s,%s,%s,%s,%s,%s,%s) on conflict(unit_name,city) do update set region_code=excluded.region_code,capacity=excluded.capacity,display_order=excluded.display_order,side=excluded.side,color=excluded.color returning id",(region,name,city,capacity,idx*10,side,color)); keep.append(cur.fetchone()["id"])
+    protected=cur.execute("select distinct unit_id from choices").fetchall(); protected_ids=[x["unit_id"] for x in protected]
+    if protected_ids: cur.execute("delete from units where not(id=any(%s)) and not(id=any(%s))",(keep,protected_ids))
+    else: cur.execute("delete from units where not(id=any(%s))",(keep,))
+    cur.execute("update event_state set version=version+1,updated_at=now() where id=1")
+   conn.commit(); return get_state(conn)
+  except HTTPException: conn.rollback(); raise
+
 @app.post("/api/admin/open")
 def admin_open(body:OpenBody,x_admin_pin:Optional[str]=Header(default=None)):
  verify_admin(x_admin_pin)
